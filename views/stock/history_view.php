@@ -39,10 +39,11 @@
        placeholder="Tìm theo Mã phiếu, Tên người lập..." value="<?= htmlspecialchars($_GET['search_hist'] ?? '') ?>">
         
         <select class="form-select form-select-sm rounded-3 w-25" name="type_hist">
-            <option value="">- Tất cả loại phiếu -</option>
-            <option value="import" <?= (($_GET['type_hist'] ?? '') === 'import') ? 'selected' : '' ?>>Phiếu Nhập kho</option>
-            <option value="export" <?= (($_GET['type_hist'] ?? '') === 'export') ? 'selected' : '' ?>>Phiếu Xuất kho</option>
-        </select>
+    <option value="">- Tất cả loại phiếu -</option>
+    <option value="Import" <?= (($_GET['type_hist'] ?? '') === 'Import') ? 'selected' : '' ?>>Phiếu Nhập kho</option>
+    <option value="Export" <?= (($_GET['type_hist'] ?? '') === 'Export') ? 'selected' : '' ?>>Phiếu Xuất kho</option>
+    <option value="Audit_Adjust" <?= (($_GET['type_hist'] ?? '') === 'Audit_Adjust') ? 'selected' : '' ?>>Phiếu kiểm kê</option>
+</select>
         
         <div class="d-flex gap-1">
             <button class="btn btn-gold-lux btn-sm rounded-3 px-3" type="submit">Lọc</button>
@@ -83,8 +84,15 @@
                             if (strpos($rtype, 'nhập') !== false || $rtype == 'import'): 
                         ?>
                             <span class="badge bg-success bg-opacity-10 text-success px-3 py-1 border border-success rounded-pill">Nhập kho</span>
+                            
+                        <?php elseif ($rtype == 'audit_adjust' || strpos($rtype, 'kiểm') !== false): ?>
+                            <!-- Nhận diện Phiếu Kiểm kê -->
+                            <span class="badge bg-warning bg-opacity-10 text-dark px-3 py-1 border border-warning rounded-pill">Kiểm kê</span>
+                            
                         <?php else: ?>
+                            <!-- Mặc định còn lại là Phiếu Xuất -->
                             <span class="badge bg-danger bg-opacity-10 text-danger px-3 py-1 border border-danger rounded-pill">Xuất kho</span>
+                            
                         <?php endif; ?>
                     </td>
                     
@@ -99,7 +107,7 @@
                     <!-- CỘT THAO TÁC: Chỉ 1 nút Xem chi tiết (Hover vàng) -->
                     <!-- CỘT THAO TÁC: Dùng chung link của Dashboard -->
                     <td class="text-center pe-4 d-flex justify-content-center">
-                        <a href="index.php?c=stock_receipt&a=show&code=<?= htmlspecialchars($item['receipt_code']) ?>" class="btn-action-edit rounded-3 d-flex align-items-center justify-content-center" style="width: 34px; height: 34px;" title="Xem chi tiết">
+                        <a href="index.php?c=stock_receipt&a=show&id=<?= (int)$item['id'] ?>" class="btn-action-edit rounded-3 d-flex align-items-center justify-content-center" style="width: 34px; height: 34px;" title="Xem chi tiết">
                             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                         </a>
                     </td>

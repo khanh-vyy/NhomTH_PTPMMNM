@@ -32,7 +32,7 @@
             <div class="kpi-icon bg-warning bg-opacity-10 text-warning">⚠️</div>
             <div>
                 <div class="text-muted small fw-bold text-uppercase">Tồn kho mức thấp</div>
-                <h4 class="mb-0 fw-bold text-warning"><?= isset($kpis['low_stock']) ? number_format($kpis['low_stock']) : 0 ?></h4>
+                <h4 class="mb-0 text-warning" style="color: #b8913b !important; font-weight: 800;"><?= isset($kpis['low_stock']) ? number_format($kpis['low_stock']) : 0 ?></h4>
             </div>
         </a>
     </div>
@@ -93,7 +93,9 @@
                             <tr>
                                 <td class="ps-4 fw-bold font-monospace text-secondary">#<?= htmlspecialchars($al['ingredient_code']) ?></td>
                                 <td class="fw-bold"><?= htmlspecialchars($al['name']) ?></td>
-                                <td class="text-end fw-bold <?= $al['stock_quantity'] <= 0 ? 'text-danger' : 'text-warning' ?>"><?= number_format($al['stock_quantity'], 2) ?></td>
+                                <td class="text-end fw-bold <?= $al['stock_quantity'] <= 0 ? 'text-danger' : '' ?>" style="<?= $al['stock_quantity'] > 0 ? 'color: #b8913b !important; font-weight: 800;' : '' ?>">
+                                    <?= number_format($al['stock_quantity'], 2) ?>
+                                </td>
                                 <td class="text-end pe-4 text-muted"><?= number_format($al['min_stock_level'], 2) ?></td>
                             </tr>
                         <?php endforeach; endif; ?>
@@ -122,16 +124,33 @@
                 <?php else: foreach ($activities as $act): 
                     $isImport = ($act['receipt_type'] == 'Import');
                     // Tạo đường dẫn truyền mã phiếu để sau này làm trang xem chi tiết
-                    $detailUrl = "index.php?c=stock_receipt&a=show&code=" . htmlspecialchars($act['receipt_code']);
+                    $detailUrl = "index.php?c=stock_receipt&a=show&id=" . (int)$act['id'];
                 ?>
                     <a href="<?= $detailUrl ?>" class="d-flex gap-3 mb-2 border-bottom pb-2 text-decoration-none act-link">
-                        <div class="<?= $isImport ? 'text-success' : 'text-danger' ?> fw-bold text-center" style="font-size: 0.9rem; min-width: 45px;">
+                        <div class="<?php 
+                                if ($act['receipt_type'] == 'Import') {
+                                    echo 'text-success';
+                                } elseif ($act['receipt_type'] == 'Audit_Adjust') {
+                                    echo ''; 
+                                } else {
+                                    echo 'text-danger';
+                                }
+                            ?> text-center" style="font-size: 0.9rem; min-width: 45px; font-weight: 800; <?= ($act['receipt_type'] == 'Audit_Adjust') ? 'color: #b8913b !important;' : '' ?>">
                             <?= date('H:i', strtotime($act['created_at'])) ?><br>
-                            <small class="text-muted" style="font-size: 0.75rem;"><?= date('d/m', strtotime($act['created_at'])) ?></small>
+                            <small class="text-muted" style="font-size: 0.75rem; font-weight: 700;"><?= date('d/m', strtotime($act['created_at'])) ?></small>
                         </div>
                         <div class="flex-grow-1">
                             <div class="fw-bold text-dark act-title" style="font-size: 0.95rem;">
-                                <?= $isImport ? 'Nhập kho' : 'Xuất kho' ?> (<?= htmlspecialchars($act['receipt_code']) ?>)
+                                <?php 
+                                    if ($isImport) {
+                                        echo 'Nhập kho';
+                                    } elseif (strtolower($act['receipt_type']) == 'audit_adjust') {
+                                        echo 'Kiểm kê';
+                                    } else {
+                                        echo 'Xuất kho';
+                                    }
+                                ?> 
+                                (<?= htmlspecialchars($act['receipt_code']) ?>)
                             </div>
                             <small class="text-muted">Người lập ID: <?= $act['user_id'] ?></small>
                         </div>

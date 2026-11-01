@@ -11,7 +11,11 @@ ADD COLUMN `supplier_id` INT DEFAULT NULL COMMENT 'ID Nhà cung cấp chính' AF
 ALTER TABLE `ingredients`
 ADD CONSTRAINT `fk_ingredient_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers`(`id`) ON DELETE SET NULL;
 
+ALTER TABLE `stock_receipt_details` 
+ADD COLUMN `reason` VARCHAR(255) DEFAULT NULL COMMENT 'Lý do chênh lệch kiểm kê' AFTER `unit_cost`;
+
 DELETE FROM `suppliers` WHERE `id` IN (1, 2, 3);
+
 
 INSERT INTO `suppliers` (`id`, `name`, `contact_person`, `phone`, `address`, `debt_balance`, `status`) VALUES
 (1, 'Công ty Thực phẩm Nhập khẩu Gofood', 'Mr. Tuấn', '0987654321', 'Quận 1, TP.HCM', 0.00, 'active'),
@@ -42,3 +46,7 @@ INSERT INTO `stock_receipts` (`receipt_code`, `supplier_id`, `user_id`, `receipt
 INSERT INTO `stock_receipt_details` (`stock_receipt_id`, `ingredient_id`, `quantity`, `unit_cost`) VALUES
 (1, 1, 1000.00, 4500.00),
 (1, 3, 500.00, 350.00);
+
+UPDATE stock_receipts 
+SET receipt_type = 'Export_Sale' 
+WHERE receipt_code LIKE 'VX%' AND (receipt_type IS NULL OR receipt_type = '');

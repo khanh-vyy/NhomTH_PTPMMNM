@@ -233,7 +233,7 @@ class StockModel {
 
     // 3. Lấy lịch sử giao dịch gần nhất (Có hỗ trợ phân trang offset)
     public function getRecentActivities($limit = 5, $offset = 0) {
-        $query = "SELECT receipt_code, receipt_type, created_at, user_id 
+        $query = "SELECT id, receipt_code, receipt_type, created_at, user_id 
                   FROM stock_receipts 
                   ORDER BY created_at DESC LIMIT :limit OFFSET :offset";
         $stmt = $this->conn->prepare($query);
@@ -394,6 +394,8 @@ class StockModel {
     // ==========================================
     // 1. Đếm tổng số phiếu (Đã fix lỗi Invalid parameter number)
     // 1. Đếm tổng số phiếu (Có hỗ trợ lọc theo ngày)
+    // 1. Đếm tổng số phiếu (Đã tối ưu lọc không phân biệt hoa thường)
+    // 1. Đếm tổng số phiếu (Đã xử lý gom nhóm ENUM)
     public function countReceiptHistory($search = '', $type = '', $date_filter = '') {
         $sql = "SELECT COUNT(*) as total 
                 FROM stock_receipts r 
@@ -403,9 +405,20 @@ class StockModel {
         if (!empty($search)) { 
             $sql .= " AND (r.receipt_code LIKE :search_code OR u.full_name LIKE :search_name)"; 
         }
-        if (!empty($type)) { 
-            $sql .= " AND r.receipt_type = :type"; 
+        
+        if (!empty($type)) {
+            if ($type === 'Import') {
+                $sql .= " AND r.receipt_type = 'Import'";
+            } elseif ($type === 'Export' || strtolower($type) === 'export') {
+                // Gom nhóm tất cả các loại phiếu xuất kho trong Database ENUM
+                $sql .= " AND r.receipt_type IN ('Export_Sale', 'Export_Damage')";
+            } elseif ($type === 'Audit_Adjust') {
+                $sql .= " AND r.receipt_type = 'Audit_Adjust'";
+            } else {
+                $sql .= " AND r.receipt_type = :type";
+            }
         }
+
         // NẾU CÓ LỌC HÔM NAY
         if ($date_filter === 'today') {
             $sql .= " AND DATE(r.created_at) = CURDATE()";
@@ -417,7 +430,9 @@ class StockModel {
             $stmt->bindValue(':search_code', "%$search%"); 
             $stmt->bindValue(':search_name', "%$search%"); 
         }
-        if (!empty($type)) { 
+        
+        // CHỈ BIND :type KHI NÓ THUỘC TRƯỜNG HỢP KHÔNG GOM NHÓM (Nhánh else)
+        if (!empty($type) && $type !== 'Import' && $type !== 'Export' && strtolower($type) !== 'export' && $type !== 'Audit_Adjust') { 
             $stmt->bindValue(':type', $type); 
         }
         
@@ -425,7 +440,7 @@ class StockModel {
         return $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     }
 
-    // 2. Lấy danh sách lịch sử phiếu (Có hỗ trợ lọc theo ngày)
+    // 2. Lấy danh sách lịch sử phiếu (Đã xử lý gom nhóm ENUM)
     public function getReceiptHistory($search = '', $type = '', $limit = 10, $offset = 0, $date_filter = '') {
         $sql = "SELECT r.*, u.full_name AS creator_name 
                 FROM stock_receipts r 
@@ -435,9 +450,20 @@ class StockModel {
         if (!empty($search)) { 
             $sql .= " AND (r.receipt_code LIKE :search_code OR u.full_name LIKE :search_name)"; 
         }
-        if (!empty($type)) { 
-            $sql .= " AND r.receipt_type = :type"; 
+        
+        if (!empty($type)) {
+            if ($type === 'Import') {
+                $sql .= " AND r.receipt_type = 'Import'";
+            } elseif ($type === 'Export' || strtolower($type) === 'export') {
+                // Gom nhóm tất cả các loại phiếu xuất kho trong Database ENUM
+                $sql .= " AND r.receipt_type IN ('Export_Sale', 'Export_Damage')";
+            } elseif ($type === 'Audit_Adjust') {
+                $sql .= " AND r.receipt_type = 'Audit_Adjust'";
+            } else {
+                $sql .= " AND r.receipt_type = :type";
+            }
         }
+
         // NẾU CÓ LỌC HÔM NAY
         if ($date_filter === 'today') {
             $sql .= " AND DATE(r.created_at) = CURDATE()";
@@ -451,9 +477,15 @@ class StockModel {
             $stmt->bindValue(':search_code', "%$search%");
             $stmt->bindValue(':search_name', "%$search%");
         }
-        if (!empty($type)) { 
+        
+        // CHỈ BIND :type KHI NÓ THUỘC TRƯỜNG HỢP KHÔNG GOM NHÓM (Nhánh else)
+        if (!empty($type) && $type !== 'Import' && $type !== 'Export' && strtolower($type) !== 'export' && $type !== 'Audit_Adjust') { 
             $stmt->bindValue(':type', $type); 
         }
+
+        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+        
         $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
         $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
         
@@ -462,7 +494,10 @@ class StockModel {
     }
     // 3. Lấy thông tin chung của phiếu nhập/xuất
     public function getReceiptById($id) {
-        $sql = "SELECT r.*, u.full_name AS creator_name, s.name AS supplier_name 
+        $sql = "SELECT r.*, u.full_name AS creator_name, 
+                       s.name AS supplier_name, 
+                       s.phone AS supplier_phone, 
+                       s.address AS supplier_address 
                 FROM stock_receipts r 
                 LEFT JOIN users u ON r.user_id = u.id 
                 LEFT JOIN suppliers s ON r.supplier_id = s.id 
@@ -476,68 +511,121 @@ class StockModel {
     // XỬ LÝ LƯU PHIẾU XUẤT KHO (EXPORT STOCK)
     // ==========================================
     public function createExportReceipt($receiptData, $detailsData) {
+    try {
+        // Bắt đầu Giao dịch (Transaction)
+        $this->conn->beginTransaction();
+        
+        // 1. Thêm mới dữ liệu vào bảng stock_receipts (Phiếu chung)
+        // Đã bổ sung :receipt_type để khớp với ràng buộc ENUM của Database
+        $sqlReceipt = "INSERT INTO stock_receipts (receipt_code, supplier_id, user_id, receipt_type, total_amount, note, created_at) 
+               VALUES (:receipt_code, NULL, :user_id, :receipt_type, :total_amount, :note, :created_at)";
+        $stmtReceipt = $this->conn->prepare($sqlReceipt);
+        $stmtReceipt->execute([
+            ':receipt_code' => $receiptData['receipt_code'],
+            ':user_id'      => $receiptData['user_id'],
+            ':receipt_type' => $receiptData['receipt_type'] ?? 'Export_Sale', // Nhận diện đúng giá trị ENUM ('Export_Sale' hoặc 'Export_Damage')
+            ':total_amount' => $receiptData['total_amount'],
+            ':note'         => $receiptData['note'],
+            ':created_at'   => $receiptData['created_at']
+        ]);
+        
+        $receiptId = $this->conn->lastInsertId();
+        
+        // 2. Cấu hình lệnh Thêm chi tiết và TRỪ kho
+        $sqlDetail = "INSERT INTO stock_receipt_details (stock_receipt_id, ingredient_id, quantity, unit_cost) 
+                      VALUES (:stock_receipt_id, :ingredient_id, :quantity, :unit_cost)";
+        $stmtDetail = $this->conn->prepare($sqlDetail);
+        
+        // TRỪ số lượng tồn kho (Chỉ trừ khi số lượng tồn >= số lượng xuất)
+        $sqlUpdateStock = "UPDATE ingredients 
+                           SET stock_quantity = stock_quantity - :qty_sub 
+                           WHERE id = :ingredient_id AND stock_quantity >= :qty_check";
+        $stmtUpdateStock = $this->conn->prepare($sqlUpdateStock);
+        
+        // 3. Chạy vòng lặp để lưu và trừ kho từng dòng
+        foreach ($detailsData as $detail) {
+            // Thực hiện trừ kho trước
+            $stmtUpdateStock->execute([
+                ':qty_sub'       => $detail['quantity'],
+                ':qty_check'     => $detail['quantity'],
+                ':ingredient_id' => $detail['ingredient_id']
+            ]);
+
+            // Kiểm tra xem lệnh Update có thành công không (nếu = 0 tức là kho không đủ số lượng để trừ)
+            if ($stmtUpdateStock->rowCount() == 0) {
+                throw new Exception("Lỗi: Nguyên liệu ID " . $detail['ingredient_id'] . " không đủ số lượng trong kho để xuất!");
+            }
+
+            // Nếu trừ kho thành công, lưu vào chi tiết chứng từ
+            $stmtDetail->execute([
+                ':stock_receipt_id' => $receiptId,
+                ':ingredient_id'    => $detail['ingredient_id'],
+                ':quantity'         => $detail['quantity'],
+                ':unit_cost'        => $detail['unit_cost'] // Lấy giá vốn hiện tại để tính giá trị xuất
+            ]);
+        }
+        
+        // Mọi thứ thành công, chốt Giao dịch
+        $this->conn->commit();
+        return true;
+        
+    } catch (Exception $e) {
+        // Có lỗi (thiếu kho, sai data...), hoàn tác lại toàn bộ
+        $this->conn->rollBack();
+        error_log("Lỗi Lưu Phiếu Xuất: " . $e->getMessage());
+        return false;
+    }
+}
+// ==========================================
+    // 8. KIỂM KÊ KHO (AUDIT & ADJUST)
+    // ==========================================
+    public function createAuditReceipt($receiptData, $auditDetails) {
         try {
-            // Bắt đầu Giao dịch (Transaction)
             $this->conn->beginTransaction();
-            
-            // 1. Thêm mới dữ liệu vào bảng stock_receipts (Phiếu chung)
-            // Lưu ý: Phiếu xuất không có supplier_id, để NULL
+
+            // 1. Tạo Phiếu kiểm kê (Loại: Audit_Adjust)
             $sqlReceipt = "INSERT INTO stock_receipts (receipt_code, supplier_id, user_id, receipt_type, total_amount, note, created_at) 
-                           VALUES (:receipt_code, NULL, :user_id, 'Export', :total_amount, :note, :created_at)";
+                           VALUES (:receipt_code, NULL, :user_id, 'Audit_Adjust', 0, :note, :created_at)";
             $stmtReceipt = $this->conn->prepare($sqlReceipt);
             $stmtReceipt->execute([
                 ':receipt_code' => $receiptData['receipt_code'],
                 ':user_id'      => $receiptData['user_id'],
-                ':total_amount' => $receiptData['total_amount'],
                 ':note'         => $receiptData['note'],
                 ':created_at'   => $receiptData['created_at']
             ]);
-            
             $receiptId = $this->conn->lastInsertId();
-            
-            // 2. Cấu hình lệnh Thêm chi tiết và TRỪ kho
-            $sqlDetail = "INSERT INTO stock_receipt_details (stock_receipt_id, ingredient_id, quantity, unit_cost) 
-                          VALUES (:stock_receipt_id, :ingredient_id, :quantity, :unit_cost)";
-            $stmtDetail = $this->conn->prepare($sqlDetail);
-            
-            // TRỪ số lượng tồn kho (Chỉ trừ khi số lượng tồn >= số lượng xuất)
-            // Sử dụng 2 tham số riêng biệt :qty_sub và :qty_check để tránh lỗi trùng lặp tham số trong PDO
-            $sqlUpdateStock = "UPDATE ingredients 
-                               SET stock_quantity = stock_quantity - :qty_sub 
-                               WHERE id = :ingredient_id AND stock_quantity >= :qty_check";
+
+            // 2. Cấu hình lệnh Cập nhật tồn kho và Lưu chi tiết (Đã thêm cột reason)
+            $sqlUpdateStock = "UPDATE ingredients SET stock_quantity = :actual_qty WHERE id = :ingredient_id";
             $stmtUpdateStock = $this->conn->prepare($sqlUpdateStock);
-            
-            // 3. Chạy vòng lặp để lưu và trừ kho từng dòng
-            foreach ($detailsData as $detail) {
-                // Thực hiện trừ kho trước
+
+            $sqlDetail = "INSERT INTO stock_receipt_details (stock_receipt_id, ingredient_id, quantity, unit_cost, reason) 
+                          VALUES (:stock_receipt_id, :ingredient_id, :quantity, :unit_cost, :reason)";
+            $stmtDetail = $this->conn->prepare($sqlDetail);
+
+            // 3. Chạy vòng lặp xử lý từng mặt hàng có chênh lệch
+            foreach ($auditDetails as $detail) {
+                // Ép tồn kho trên hệ thống về đúng bằng số lượng thực tế nhân viên đếm được
                 $stmtUpdateStock->execute([
-                    ':qty_sub'       => $detail['quantity'],
-                    ':qty_check'     => $detail['quantity'],
+                    ':actual_qty'    => $detail['actual_qty'],
                     ':ingredient_id' => $detail['ingredient_id']
                 ]);
 
-                // Kiểm tra xem lệnh Update có thành công không (nếu = 0 tức là kho không đủ số lượng để trừ)
-                if ($stmtUpdateStock->rowCount() == 0) {
-                    throw new Exception("Lỗi: Nguyên liệu ID " . $detail['ingredient_id'] . " không đủ số lượng trong kho để xuất!");
-                }
-
-                // Nếu trừ kho thành công, lưu vào chi tiết chứng từ
+                // Lưu dòng chi tiết phiếu kèm theo lý do chênh lệch
                 $stmtDetail->execute([
                     ':stock_receipt_id' => $receiptId,
                     ':ingredient_id'    => $detail['ingredient_id'],
-                    ':quantity'         => $detail['quantity'],
-                    ':unit_cost'        => $detail['unit_cost'] // Lấy giá vốn hiện tại để tính giá trị xuất
+                    ':quantity'         => $detail['difference'], 
+                    ':unit_cost'        => $detail['unit_cost'],
+                    ':reason'           => $detail['reason'] ?? '' // Lưu lý do truyền vào (nếu trống thì để chuỗi rỗng)
                 ]);
             }
-            
-            // Mọi thứ thành công, chốt Giao dịch
+
             $this->conn->commit();
-            return true;
-            
+            return $receiptId; // Trả về ID phiếu thay vì chữ true để controller biết đường chuyển trang
         } catch (Exception $e) {
-            // Có lỗi (thiếu kho, sai data...), hoàn tác lại toàn bộ
             $this->conn->rollBack();
-            error_log("Lỗi Lưu Phiếu Xuất: " . $e->getMessage());
+            error_log("Lỗi Lưu Phiếu Kiểm Kê: " . $e->getMessage());
             return false;
         }
     }

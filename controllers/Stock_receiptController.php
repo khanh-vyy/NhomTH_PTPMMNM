@@ -97,29 +97,104 @@ class Stock_receiptController {
         }
     }
     // Hàm xử lý riêng cho tính năng Xem chi tiết Lịch sử phiếu
-    public function show_receipt() {
+    // Hàm xử lý Xem chi tiết (Phân luồng 3 loại phiếu)
+    public function show() {
         $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+        $code = isset($_GET['code']) ? trim($_GET['code']) : '';
         
-        if ($id <= 0) {
-            echo "<script>alert('Mã phiếu không hợp lệ!'); window.location.href='index.php?c=stock&a=index&tab=history';</script>";
-            exit;
+        $receipt = null;
+        if ($id > 0) {
+            $receipt = $this->stockModel->getReceiptById($id);
+        } elseif (!empty($code)) {
+            $receipt = $this->stockModel->getReceiptByCode($code);
         }
 
-        // Khởi tạo model (Nếu file này dùng model khác thì bạn đổi $this->stockModel cho đúng nhé)
-        require_once __DIR__ . '/../models/StockModel.php';
-        $stockModel = new StockModel();
-
-        // Lấy dữ liệu
-        $receipt = $stockModel->getReceiptById($id); 
         if (!$receipt) {
-            echo "<script>alert('Không tìm thấy phiếu này!'); window.location.href='index.php?c=stock&a=index&tab=history';</script>";
+            echo "<script>alert('Mã phiếu không hợp lệ hoặc không tìm thấy!'); window.location.href='index.php?c=stock&a=index&tab=history';</script>";
             exit;
         }
 
-        $details = $stockModel->getReceiptDetails($id);
+        $details = $this->stockModel->getReceiptDetails($receipt['id']);
 
-        // Gọi View hiển thị (Tạo file riêng để không đè file show.php cũ)
-        require_once __DIR__ . '/../views/stock/stock_receipt/show_receipt.php';
+        // PHÂN LUỒNG GIAO DIỆN THEO MÃ PHIẾU:
+        if (strpos($receipt['receipt_code'], 'PN') === 0) {
+            // Nếu mã bắt đầu bằng PN -> Gọi form Phiếu Nhập
+            require_once __DIR__ . '/../views/stock/stock_receipt/show.php';
+            
+        } elseif (strpos($receipt['receipt_code'], 'KK') === 0) {
+            // Nếu mã bắt đầu bằng KK -> Gọi form Phiếu Kiểm Kê
+            require_once __DIR__ . '/../views/stock/stock_receipt/show_audit.php';
+            
+        } else {
+            // Còn lại (VX) -> Gọi form Phiếu Xuất
+            require_once __DIR__ . '/../views/stock/stock_receipt/show_receipt.php';
+        }
+    }
+    public function audit() {
+        // Lấy toàn bộ danh sách nguyên vật liệu để nhân viên đếm
+        $ingredients = $this->stockModel->getIngredients('', '', '', '', 1000, 0);
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            
+            $user_id = $_SESSION['user_id'] ?? 2;
+            $receipt_code = trim($_POST['receipt_code'] ?? 'KK' . date('ymdHis'));
+            $note         = trim($_POST['note'] ?? 'Phiếu điều chỉnh kiểm kê định kỳ');
+            $created_at   = date('Y-m-d H:i:s');
+
+            $ingredient_ids = $_POST['ingredient_id'] ?? [];
+            $current_qtys   = $_POST['current_qty'] ?? [];
+            $actual_qtys    = $_POST['actual_qty'] ?? [];
+            $unit_costs     = $_POST['unit_cost'] ?? [];
+            $reasons        = $_POST['reason'] ?? []; // <-- BỔ SUNG DÒNG NÀY ĐỂ HỨNG DỮ LIỆU LÝ DO
+
+            $auditDetails = [];
+            for ($i = 0; $i < count($ingredient_ids); $i++) {
+                if (isset($actual_qtys[$i]) && $actual_qtys[$i] !== '') {
+                    $actual_qty  = (float)$actual_qtys[$i];
+                    $current_qty = (float)$current_qtys[$i];
+                    $diff        = $actual_qty - $current_qty;
+
+                    if ($diff != 0) {
+                        $auditDetails[] = [
+                            'ingredient_id' => (int)$ingredient_ids[$i],
+                            'actual_qty'    => $actual_qty,
+                            'difference'    => $diff, 
+                            'unit_cost'     => (float)($unit_costs[$i] ?? 0),
+                            'reason'        => trim($reasons[$i] ?? '') // Bây giờ biến $reasons đã tồn tại và lấy đúng dữ liệu
+                        ];
+                    }
+                }
+            }
+
+            if (!empty($auditDetails)) {$receiptData = [
+                    'receipt_code' => $receipt_code,
+                    'user_id'      => $user_id,
+                    'note'         => $note,
+                    'created_at'   => $created_at
+                ];
+
+                $receiptId =$this->stockModel->createAuditReceipt($receiptData,$auditDetails);
+                
+                if ($receiptId) {
+                    echo "<script>
+                        alert('✅ Kiểm kê thành công! Kho đã được cân bằng thực tế.'); 
+                        window.location.href='index.php?c=stock_receipt&a=show&id=" . $receiptId . "&from=dashboard';
+                    </script>";
+                    exit;
+                } else {
+                    echo "<script>alert('❌ Lỗi hệ thống: Không thể lưu phiếu kiểm kê!');</script>";
+                }
+            } else {
+                echo "<script>alert('✅ Khớp 100%! Không có chênh lệch nào cần điều chỉnh.'); window.location.href='index.php?c=stock&a=index&tab=dashboard';</script>";
+                exit;
+            }
+        }
+
+        // Render View Giao diện Kiểm kê
+        require_once __DIR__ . '/../views/stock/stock_receipt/audit_form.php';
     }
 }
 ?>

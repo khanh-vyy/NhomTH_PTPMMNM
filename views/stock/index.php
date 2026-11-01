@@ -188,7 +188,7 @@
         <div class="d-flex gap-2 align-items-center">
             <a href="index.php?c=stock_receipt&a=create&type=import" class="btn btn-import-lux btn-sm px-4 py-2 rounded-3">Tạo Phiếu Nhập</a>
             <a href="index.php?c=stock_receipt&a=create&type=export" class="btn btn-export-lux btn-sm px-4 py-2 rounded-3">Tạo Phiếu Xuất</a>
-            <a href="index.php?c=inventory&a=audit" class="btn btn-audit-lux btn-sm px-4 py-2 rounded-3">Kiểm Kê</a>
+            <a href="index.php?c=stock_receipt&a=audit" class="btn btn-audit-lux btn-sm px-4 py-2 rounded-3">Kiểm Kê</a>
         </div>
     </div>
     <!-- TABS TRẢI DÀI -->
